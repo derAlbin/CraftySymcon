@@ -1,20 +1,21 @@
 {
   "id": "{F3A2C1B0-CRAFTY-LIB-0000-000000000001}",
-  "name": "CraftySymcon",
   "author": "Albin Gulich + Copilot",
-  "url": "https://github.com/derAlbin/CraftySymcon/,
+  "name": "CraftySymcon",
+  "url": "nothing",
   "compatibility": {
-    "version": "7.0"
+    "version": "8.0"
   },
-  "version": "1.0",
-  "build": 1,
-  "date": 20260306,
+  "version": "1",
+  "build": 0,1
+  "date": 0,
   "modules": [
     {
       "id": "{A1B2C3D4-CRAFTY-0001-000000000001}",
       "name": "CraftySymcon",
       "type": 3,
-      "prefix": "CraftySymcon"
+      "prefix": ""
     }
   ]
 }
+
