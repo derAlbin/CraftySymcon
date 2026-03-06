@@ -1,0 +1,11 @@
+{
+  "id": "{A1B2C3D4-CRAFTY-0001-000000000001}",
+  "name": "Crafty Server",
+  "type": 3,
+  "vendor": "Crafty",
+  "aliases": ["Crafty 4 Server"],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "CRAFTY"
+}

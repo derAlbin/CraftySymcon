@@ -1,0 +1,71 @@
+{
+  "elements": [
+    {
+      "type": "ValidationTextBox",
+      "name": "Host",
+      "caption": "Crafty Host"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Port",
+      "caption": "Port"
+    },
+    {
+      "type": "PasswordTextBox",
+      "name": "Token",
+      "caption": "API Token"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "ServerID",
+      "caption": "Server ID"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Interval",
+      "caption": "Update-Intervall (Sek.)"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Jetzt aktualisieren",
+      "onClick": "CRAFTY_Update($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Server starten",
+      "onClick": "CRAFTY_StartServer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Server stoppen",
+      "onClick": "CRAFTY_StopServer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Server neu starten",
+      "onClick": "CRAFTY_RestartServer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Spieler kicken",
+      "onClick": "CRAFTY_KickPlayer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Spieler bannen",
+      "onClick": "CRAFTY_BanPlayer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Spieler entbannen",
+      "onClick": "CRAFTY_UnbanPlayer($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Konsolenbefehl senden",
+      "onClick": "CRAFTY_SendCommand($id);"
+    }
+  ]
+}
