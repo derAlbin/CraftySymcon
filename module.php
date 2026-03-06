@@ -1,6 +1,6 @@
 <?php
 
-class CraftyServer extends IPSModule
+class CraftySymcon extends IPSModule
 {
     public function Create()
     {
@@ -14,7 +14,6 @@ class CraftyServer extends IPSModule
 
         $this->RegisterTimer("UpdateTimer", 0, "CRAFTY_Update(\$_IPS['TARGET']);");
 
-        // Status / Stats
         $this->RegisterVariableString("ServerName", "Servername");
         $this->RegisterVariableBoolean("Online", "Online", "~Switch");
         $this->EnableAction("Online");
@@ -23,7 +22,6 @@ class CraftyServer extends IPSModule
         $this->RegisterVariableFloat("CPU", "CPU (%)");
         $this->RegisterVariableFloat("RAM", "RAM (MB)");
 
-        // Aktionen / Parameter
         $this->RegisterVariableString("PlayerName", "Spielername");
         $this->EnableAction("PlayerName");
 
@@ -43,43 +41,22 @@ class CraftyServer extends IPSModule
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-
-        $interval = $this->ReadPropertyInteger("Interval");
-        $this->SetTimerInterval("UpdateTimer", $interval * 1000);
+        $this->SetTimerInterval("UpdateTimer", $this->ReadPropertyInteger("Interval") * 1000);
     }
 
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
             case "Online":
-                if ($Value) {
-                    $this->StartServer();
-                } else {
-                    $this->StopServer();
-                }
+                $Value ? $this->StartServer() : $this->StopServer();
                 break;
 
             case "PlayerName":
-                SetValue($this->GetIDForIdent("PlayerName"), $Value);
-                break;
-
             case "BanReason":
-                SetValue($this->GetIDForIdent("BanReason"), $Value);
-                break;
-
             case "ConsoleCommand":
-                SetValue($this->GetIDForIdent("ConsoleCommand"), $Value);
-                $this->SendCommand($Value);
-                break;
-
             case "MaxPlayers":
-                SetValue($this->GetIDForIdent("MaxPlayers"), $Value);
-                $this->SetServerSetting("max_players", $Value);
-                break;
-
             case "MOTD":
-                SetValue($this->GetIDForIdent("MOTD"), $Value);
-                $this->SetServerSetting("motd", $Value);
+                SetValue($this->GetIDForIdent($Ident), $Value);
                 break;
         }
     }
@@ -87,173 +64,65 @@ class CraftyServer extends IPSModule
     public function Update()
     {
         $serverID = $this->ReadPropertyInteger("ServerID");
-
         $servers = $this->CallAPI("GET", "/api/v2/servers");
-        if ($servers === false) {
-            return;
-        }
+
+        if (!is_array($servers)) return;
 
         foreach ($servers as $server) {
             if ($server["id"] == $serverID) {
-                @SetValue($this->GetIDForIdent("ServerName"), $server["name"]);
-                @SetValue($this->GetIDForIdent("Online"), $server["running"]);
-                if (isset($server["stats"]["players"])) {
-                    @SetValue($this->GetIDForIdent("Players"), $server["stats"]["players"]);
-                }
-                if (isset($server["stats"]["cpu"])) {
-                    @SetValue($this->GetIDForIdent("CPU"), $server["stats"]["cpu"]);
-                }
-                if (isset($server["stats"]["memory"])) {
-                    @SetValue($this->GetIDForIdent("RAM"), $server["stats"]["memory"]);
-                }
+                SetValue($this->GetIDForIdent("ServerName"), $server["name"]);
+                SetValue($this->GetIDForIdent("Online"), $server["running"]);
+                SetValue($this->GetIDForIdent("Players"), $server["stats"]["players"] ?? 0);
+                SetValue($this->GetIDForIdent("CPU"), $server["stats"]["cpu"] ?? 0);
+                SetValue($this->GetIDForIdent("RAM"), $server["stats"]["memory"] ?? 0);
                 return;
             }
         }
-
-        IPS_LogMessage("Crafty", "Server-ID nicht gefunden: $serverID");
     }
 
-    // ---- Standard-Aktionen ----
+    public function StartServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/start"); }
+    public function StopServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/stop"); }
+    public function RestartServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/restart"); }
 
-    public function StartServer()
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/start");
-        $this->Update();
+    public function KickPlayer() {
+        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/kick", [
+            "player" => GetValueString($this->GetIDForIdent("PlayerName"))
+        ]);
     }
 
-    public function StopServer()
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/stop");
-        $this->Update();
+    public function BanPlayer() {
+        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/ban", [
+            "player" => GetValueString($this->GetIDForIdent("PlayerName")),
+            "reason" => GetValueString($this->GetIDForIdent("BanReason"))
+        ]);
     }
 
-    public function RestartServer()
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/restart");
-        $this->Update();
+    public function UnbanPlayer() {
+        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/unban", [
+            "player" => GetValueString($this->GetIDForIdent("PlayerName"))
+        ]);
     }
 
-    public function KickPlayer(string $Player = "")
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        if ($Player == "") {
-            $Player = GetValueString($this->GetIDForIdent("PlayerName"));
-        }
-        if ($Player == "") {
-            IPS_LogMessage("Crafty", "KickPlayer: Kein Spielername gesetzt");
-            return;
-        }
-
-        $payload = ["player" => $Player];
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/players/kick", $payload);
+    public function SendCommand() {
+        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/console", [
+            "command" => GetValueString($this->GetIDForIdent("ConsoleCommand"))
+        ]);
     }
-
-    public function BanPlayer(string $Player = "", string $Reason = "")
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        if ($Player == "") {
-            $Player = GetValueString($this->GetIDForIdent("PlayerName"));
-        }
-        if ($Reason == "") {
-            $Reason = GetValueString($this->GetIDForIdent("BanReason"));
-        }
-        if ($Player == "") {
-            IPS_LogMessage("Crafty", "BanPlayer: Kein Spielername gesetzt");
-            return;
-        }
-
-        $payload = [
-            "player" => $Player,
-            "reason" => $Reason
-        ];
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/players/ban", $payload);
-    }
-
-    public function UnbanPlayer(string $Player = "")
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        if ($Player == "") {
-            $Player = GetValueString($this->GetIDForIdent("PlayerName"));
-        }
-        if ($Player == "") {
-            IPS_LogMessage("Crafty", "UnbanPlayer: Kein Spielername gesetzt");
-            return;
-        }
-
-        $payload = ["player" => $Player];
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/players/unban", $payload);
-    }
-
-    public function SendCommand(string $Command = "")
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-        if ($Command == "") {
-            $Command = GetValueString($this->GetIDForIdent("ConsoleCommand"));
-        }
-        if ($Command == "") {
-            IPS_LogMessage("Crafty", "SendCommand: Kein Befehl gesetzt");
-            return;
-        }
-
-        $payload = ["command" => $Command];
-        $this->CallAPI("POST", "/api/v2/servers/{$id}/console", $payload);
-    }
-
-    // ---- Generische Schreib-Funktion für Settings ----
-
-    public function SetServerSetting(string $Key, $Value)
-    {
-        $id = $this->ReadPropertyInteger("ServerID");
-
-        $payload = [
-            $Key => $Value
-        ];
-
-        // Pfad ggf. an Crafty-4-Doku anpassen
-        $this->CallAPI("PATCH", "/api/v2/servers/{$id}/settings", $payload);
-    }
-
-    // ---- Zentrale API-Funktion ----
 
     private function CallAPI(string $Method, string $Path, array $Payload = null)
     {
-        $host  = $this->ReadPropertyString("Host");
-        $port  = $this->ReadPropertyInteger("Port");
+        $url = "http://".$this->ReadPropertyString("Host").":".$this->ReadPropertyInteger("Port").$Path;
         $token = $this->ReadPropertyString("Token");
 
-        if ($host == "" || $token == "") {
-            IPS_LogMessage("Crafty", "Host oder Token fehlt.");
-            return false;
-        }
-
-        $url = "http://{$host}:{$port}{$Path}";
-
-        $headers = "Authorization: Bearer {$token}\r\n";
-        $options = [
+        $opts = [
             "http" => [
                 "method" => $Method,
-                "header" => $headers
+                "header" => "Authorization: Bearer $token\r\nContent-Type: application/json\r\n",
+                "content" => $Payload ? json_encode($Payload) : ""
             ]
         ];
 
-        if ($Payload !== null) {
-            $body = json_encode($Payload);
-            $options["http"]["header"] .= "Content-Type: application/json\r\n";
-            $options["http"]["content"] = $body;
-        }
-
-        $context  = stream_context_create($options);
-        $response = @file_get_contents($url, false, $context);
-
-        if ($response === false) {
-            IPS_LogMessage("Crafty", "API-Fehler bei {$Method} {$url}");
-            return false;
-        }
-
-        $data = json_decode($response, true);
-        return $data === null ? $response : $data;
+        $response = @file_get_contents($url, false, stream_context_create($opts));
+        return json_decode($response, true);
     }
 }
