@@ -1,128 +1,154 @@
 <?php
 
-class CraftySymcon extends IPSModule
+class CraftyServer extends IPSModule
 {
+    private $craftyVersion = 'unknown'; // legacy | v4 | unknown
+
     public function Create()
     {
         parent::Create();
 
-        $this->RegisterPropertyString("Host", "");
-        $this->RegisterPropertyInteger("Port", 8000);
-        $this->RegisterPropertyString("Token", "");
-        $this->RegisterPropertyInteger("ServerID", 1);
-        $this->RegisterPropertyInteger("Interval", 30);
+        $this->RegisterPropertyString('BaseURL', '');
+        $this->RegisterPropertyString('APIToken', '');
+        $this->RegisterPropertyString('ServerUUID', '');
+        $this->RegisterPropertyInteger('ServerID', 0);
 
-        $this->RegisterTimer("UpdateTimer", 0, "CRAFTY_Update(\$_IPS['TARGET']);");
-
-        $this->RegisterVariableString("ServerName", "Servername");
-        $this->RegisterVariableBoolean("Online", "Online", "~Switch");
-        $this->EnableAction("Online");
-
-        $this->RegisterVariableInteger("Players", "Spieler online");
-        $this->RegisterVariableFloat("CPU", "CPU (%)");
-        $this->RegisterVariableFloat("RAM", "RAM (MB)");
-
-        $this->RegisterVariableString("PlayerName", "Spielername");
-        $this->EnableAction("PlayerName");
-
-        $this->RegisterVariableString("BanReason", "Ban-Grund");
-        $this->EnableAction("BanReason");
-
-        $this->RegisterVariableString("ConsoleCommand", "Konsolenbefehl");
-        $this->EnableAction("ConsoleCommand");
-
-        $this->RegisterVariableInteger("MaxPlayers", "Max. Spieler");
-        $this->EnableAction("MaxPlayers");
-
-        $this->RegisterVariableString("MOTD", "MOTD");
-        $this->EnableAction("MOTD");
+        $this->RegisterVariableString('Status', 'Status', '', 1);
+        $this->RegisterVariableString('Stats', 'Stats', '', 2);
     }
 
     public function ApplyChanges()
     {
         parent::ApplyChanges();
-        $this->SetTimerInterval("UpdateTimer", $this->ReadPropertyInteger("Interval") * 1000);
+
+        $this->craftyVersion = $this->DetectCraftyVersion($this->ReadPropertyString('BaseURL'));
     }
 
-    public function RequestAction($Ident, $Value)
-    {
-        switch ($Ident) {
-            case "Online":
-                $Value ? $this->StartServer() : $this->StopServer();
-                break;
+    /* ---------------------------------------------------------
+     * VERSION DETECTION
+     * --------------------------------------------------------- */
 
-            case "PlayerName":
-            case "BanReason":
-            case "ConsoleCommand":
-            case "MaxPlayers":
-            case "MOTD":
-                SetValue($this->GetIDForIdent($Ident), $Value);
-                break;
+    private function DetectCraftyVersion(string $url): string
+    {
+        if (strpos($url, ':8111') !== false) {
+            return 'legacy';
+        }
+        if (strpos($url, ':8443') !== false) {
+            return 'v4';
+        }
+
+        return $this->ProbeCraftyAPI($url);
+    }
+
+    private function ProbeCraftyAPI(string $url): string
+    {
+        if ($this->TestEndpoint($url . '/api/v2/ping')) {
+            return 'v4';
+        }
+
+        if ($this->TestEndpoint($url . '/panel/api/ping')) {
+            return 'legacy';
+        }
+
+        return 'unknown';
+    }
+
+    private function TestEndpoint(string $url): bool
+    {
+        $result = @file_get_contents($url);
+        return $result !== false;
+    }
+
+    /* ---------------------------------------------------------
+     * PUBLIC API
+     * --------------------------------------------------------- */
+
+    public function StartServer()
+    {
+        return $this->CallAPI('start');
+    }
+
+    public function StopServer()
+    {
+        return $this->CallAPI('stop');
+    }
+
+    public function RestartServer()
+    {
+        return $this->CallAPI('restart');
+    }
+
+    public function UpdateStats()
+    {
+        $data = $this->CallAPI('stats');
+        SetValueString($this->GetIDForIdent('Stats'), json_encode($data));
+        return $data;
+    }
+
+    /* ---------------------------------------------------------
+     * API ABSTRACTION
+     * --------------------------------------------------------- */
+
+    private function CallAPI(string $endpoint)
+    {
+        switch ($this->craftyVersion) {
+
+            case 'legacy':
+                $uuid = $this->ReadPropertyString('ServerUUID');
+                return $this->LegacyRequest($uuid, $endpoint);
+
+            case 'v4':
+                $id = $this->ReadPropertyInteger('ServerID');
+                return $this->V4Request($id, $endpoint);
+
+            default:
+                IPS_LogMessage('CraftyServer', 'Unknown Crafty version');
+                return null;
         }
     }
 
-    public function Update()
+    /* ---------------------------------------------------------
+     * LEGACY API (UUID)
+     * --------------------------------------------------------- */
+
+    private function LegacyRequest(string $uuid, string $endpoint)
     {
-        $serverID = $this->ReadPropertyInteger("ServerID");
-        $servers = $this->CallAPI("GET", "/api/v2/servers");
-
-        if (!is_array($servers)) return;
-
-        foreach ($servers as $server) {
-            if ($server["id"] == $serverID) {
-                SetValue($this->GetIDForIdent("ServerName"), $server["name"]);
-                SetValue($this->GetIDForIdent("Online"), $server["running"]);
-                SetValue($this->GetIDForIdent("Players"), $server["stats"]["players"] ?? 0);
-                SetValue($this->GetIDForIdent("CPU"), $server["stats"]["cpu"] ?? 0);
-                SetValue($this->GetIDForIdent("RAM"), $server["stats"]["memory"] ?? 0);
-                return;
-            }
-        }
+        $url = $this->ReadPropertyString('BaseURL') . "/panel/api/server/$uuid/$endpoint";
+        return $this->SendAPIRequest($url);
     }
 
-    public function StartServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/start"); }
-    public function StopServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/stop"); }
-    public function RestartServer() { $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/restart"); }
+    /* ---------------------------------------------------------
+     * V4 API (numeric ID)
+     * --------------------------------------------------------- */
 
-    public function KickPlayer() {
-        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/kick", [
-            "player" => GetValueString($this->GetIDForIdent("PlayerName"))
-        ]);
-    }
-
-    public function BanPlayer() {
-        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/ban", [
-            "player" => GetValueString($this->GetIDForIdent("PlayerName")),
-            "reason" => GetValueString($this->GetIDForIdent("BanReason"))
-        ]);
-    }
-
-    public function UnbanPlayer() {
-        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/players/unban", [
-            "player" => GetValueString($this->GetIDForIdent("PlayerName"))
-        ]);
-    }
-
-    public function SendCommand() {
-        $this->CallAPI("POST", "/api/v2/servers/".$this->ReadPropertyInteger("ServerID")."/console", [
-            "command" => GetValueString($this->GetIDForIdent("ConsoleCommand"))
-        ]);
-    }
-
-    private function CallAPI(string $Method, string $Path, array $Payload = null)
+    private function V4Request(int $id, string $endpoint)
     {
-        $url = "http://".$this->ReadPropertyString("Host").":".$this->ReadPropertyInteger("Port").$Path;
-        $token = $this->ReadPropertyString("Token");
+        $url = $this->ReadPropertyString('BaseURL') . "/api/v2/servers/$id/$endpoint";
+        return $this->SendAPIRequest($url);
+    }
+
+    /* ---------------------------------------------------------
+     * SHARED REQUEST HANDLER
+     * --------------------------------------------------------- */
+
+    private function SendAPIRequest(string $url)
+    {
+        $token = $this->ReadPropertyString('APIToken');
 
         $opts = [
-            "http" => [
-                "method" => $Method,
-                "header" => "Authorization: Bearer $token\r\nContent-Type: application/json\r\n",
-                "content" => $Payload ? json_encode($Payload) : ""
+            'http' => [
+                'header' => "Authorization: Bearer $token\r\n"
             ]
         ];
 
-        $response = @file_get_contents($url, false, stream_context_create($opts));
-        return json_decode($response, true);
+        $context = stream_context_create($opts);
+        $result = @file_get_contents($url, false, $context);
+
+        if ($result === false) {
+            IPS_LogMessage('CraftyServer', "API request failed: $url");
+            return null;
+        }
+
+        return json_decode($result, true);
     }
 }
